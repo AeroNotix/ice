@@ -52,7 +52,7 @@ const (
 	maxBufferSize = 1000 * 1000 // 1MB
 
 	// the number of outbound binding requests we cache
-	maxPendingBindingRequests = 50
+	maxPendingBindingRequests = 500
 )
 
 var (
