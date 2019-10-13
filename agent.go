@@ -46,7 +46,7 @@ const (
 	defaultRelayAcceptanceMinWait = 2000 * time.Millisecond
 
 	// max binding request before considering a pair failed
-	defaultMaxBindingRequests = 7
+	defaultMaxBindingRequests = 70
 
 	// the number of bytes that can be buffered before we start to error
 	maxBufferSize = 1000 * 1000 // 1MB
