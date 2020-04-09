@@ -66,7 +66,6 @@ func (a *Agent) connect(ctx context.Context, isControlling bool, remoteUfrag, re
 	return &Conn{
 		agent: a,
 	}, nil
-
 }
 
 // Read implements the Conn Read method.
@@ -92,8 +91,8 @@ func (c *Conn) Write(p []byte) (int, error) {
 		return 0, errors.New("the ICE conn can't write STUN messages")
 	}
 
-	pair, err := c.agent.getSelectedPair()
-	if err != nil {
+	pair := c.agent.getSelectedPair()
+	if pair == nil {
 		return 0, err
 	}
 

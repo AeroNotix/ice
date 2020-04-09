@@ -1,3 +1,5 @@
+// +build !js
+
 package ice
 
 import (
@@ -7,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pion/logging"
 	"github.com/pion/stun"
 	"github.com/pion/transport/test"
 	"github.com/pion/transport/vnet"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,11 +50,7 @@ func TestPairSearch(t *testing.T) {
 		t.Fatalf("No Candidate pairs should exist")
 	}
 
-	err = a.Close()
-
-	if err != nil {
-		t.Fatalf("Close agent emits error %v", err)
-	}
+	assert.NoError(t, a.Close())
 }
 
 func TestPairPriority(t *testing.T) {
@@ -137,9 +137,7 @@ func TestPairPriority(t *testing.T) {
 		}
 	}
 
-	if err := a.Close(); err != nil {
-		t.Fatalf("Error on agent.Close(): %s", err)
-	}
+	assert.NoError(t, a.Close())
 }
 
 func TestOnSelectedCandidatePairChange(t *testing.T) {
@@ -191,6 +189,7 @@ func TestOnSelectedCandidatePairChange(t *testing.T) {
 
 	// ensure that the callback fired on setting the pair
 	<-callbackCalled
+	assert.NoError(t, a.Close())
 }
 
 type BadAddr struct{}
@@ -212,12 +211,17 @@ func runAgentTest(t *testing.T, config *AgentConfig, task func(a *Agent)) {
 	if err := a.run(task); err != nil {
 		t.Fatalf("Agent run failure: %v", err)
 	}
+
+	assert.NoError(t, a.Close())
 }
 
 func TestHandlePeerReflexive(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 2)
 	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
 
 	t.Run("UDP pflx candidate from handleInbound()", func(t *testing.T) {
 		var config AgentConfig
@@ -277,11 +281,6 @@ func TestHandlePeerReflexive(t *testing.T) {
 			if c.Port() != 999 {
 				t.Fatal("Port number mismatch")
 			}
-
-			err = a.Close()
-			if err != nil {
-				t.Fatalf("Close agent emits error %v", err)
-			}
 		})
 	})
 
@@ -309,11 +308,6 @@ func TestHandlePeerReflexive(t *testing.T) {
 			if len(a.remoteCandidates) != 0 {
 				t.Fatal("bad address should not be added to the remote candidate list")
 			}
-
-			err = a.Close()
-			if err != nil {
-				t.Fatalf("Close agent emits error %v", err)
-			}
 		})
 	})
 
@@ -325,7 +319,7 @@ func TestHandlePeerReflexive(t *testing.T) {
 			tID := [stun.TransactionIDSize]byte{}
 			copy(tID[:], []byte("ABC"))
 			a.pendingBindingRequests = []bindingRequest{
-				{tID, &net.UDPAddr{}, false},
+				{time.Now(), tID, &net.UDPAddr{}, false},
 			}
 
 			hostConfig := CandidateHostConfig{
@@ -360,6 +354,9 @@ func TestHandlePeerReflexive(t *testing.T) {
 // Assert that Agent on startup sends message, and doesn't wait for connectivityTicker to fire
 // github.com/pion/ice/issues/15
 func TestConnectivityOnStartup(t *testing.T) {
+	report := test.CheckRoutines(t)
+	defer report()
+
 	stunServerURL := &URL{
 		Scheme: SchemeTypeSTUN,
 		Host:   "1.2.3.4",
@@ -434,6 +431,12 @@ func TestConnectivityOnStartup(t *testing.T) {
 }
 
 func TestConnectivityLite(t *testing.T) {
+	lim := test.TimeOut(time.Second * 30)
+	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
+
 	stunServerURL := &URL{
 		Scheme: SchemeTypeSTUN,
 		Host:   "1.2.3.4",
@@ -461,8 +464,6 @@ func TestConnectivityLite(t *testing.T) {
 		NetworkTypes:     supportedNetworkTypes,
 		MulticastDNSMode: MulticastDNSModeDisabled,
 		Net:              v.net0,
-
-		taskLoopInterval: time.Hour,
 	}
 
 	aAgent, err := NewAgent(cfg0)
@@ -483,7 +484,6 @@ func TestConnectivityLite(t *testing.T) {
 		NetworkTypes:     supportedNetworkTypes,
 		MulticastDNSMode: MulticastDNSModeDisabled,
 		Net:              v.net1,
-		taskLoopInterval: time.Hour,
 	}
 
 	bAgent, err := NewAgent(cfg1)
@@ -510,6 +510,9 @@ func TestConnectivityLite(t *testing.T) {
 }
 
 func TestInboundValidity(t *testing.T) {
+	report := test.CheckRoutines(t)
+	defer report()
+
 	buildMsg := func(class stun.MessageClass, username, key string) *stun.Message {
 		msg, err := stun.Build(stun.NewType(stun.MethodBinding, class), stun.TransactionID,
 			stun.NewUsername(username),
@@ -551,6 +554,8 @@ func TestInboundValidity(t *testing.T) {
 		if len(a.remoteCandidates) == 1 {
 			t.Fatal("Binding with invalid MessageIntegrity was able to create prflx candidate")
 		}
+
+		assert.NoError(t, a.Close())
 	})
 
 	t.Run("Invalid Binding success responses should be discarded", func(t *testing.T) {
@@ -563,6 +568,8 @@ func TestInboundValidity(t *testing.T) {
 		if len(a.remoteCandidates) == 1 {
 			t.Fatal("Binding with invalid MessageIntegrity was able to create prflx candidate")
 		}
+
+		assert.NoError(t, a.Close())
 	})
 
 	t.Run("Discard non-binding messages", func(t *testing.T) {
@@ -575,6 +582,8 @@ func TestInboundValidity(t *testing.T) {
 		if len(a.remoteCandidates) == 1 {
 			t.Fatal("non-binding message was able to create prflxRemote")
 		}
+
+		assert.NoError(t, a.Close())
 	})
 
 	t.Run("Valid bind request", func(t *testing.T) {
@@ -592,9 +601,8 @@ func TestInboundValidity(t *testing.T) {
 			}
 		})
 
-		if err != nil {
-			t.Fatalf("Agent run failure: %v", err)
-		}
+		assert.NoError(t, err)
+		assert.NoError(t, a.Close())
 	})
 
 	t.Run("Valid bind without fingerprint", func(t *testing.T) {
@@ -642,23 +650,23 @@ func TestInboundValidity(t *testing.T) {
 			stun.NewShortTermIntegrity(a.remotePwd),
 			stun.Fingerprint,
 		)
-		if err != nil {
-			t.Fatal(err)
-		}
+		assert.NoError(t, err)
 
 		a.handleInbound(msg, local, remote)
 		if len(a.remoteCandidates) != 0 {
 			t.Fatal("unknown remote was able to create a candidate")
 		}
-	})
 
+		assert.NoError(t, a.Close())
+	})
 }
 
 func TestInvalidAgentStarts(t *testing.T) {
+	report := test.CheckRoutines(t)
+	defer report()
+
 	a, err := NewAgent(&AgentConfig{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
@@ -679,12 +687,17 @@ func TestInvalidAgentStarts(t *testing.T) {
 	if _, err = a.Dial(context.TODO(), "foo", "bar"); err != nil && err != ErrMultipleStart {
 		t.Fatal(err)
 	}
+
+	assert.NoError(t, a.Close())
 }
 
 // Assert that Agent emits Connecting/Connected/Disconnected/Closed messages
 func TestConnectionStateCallback(t *testing.T) {
 	lim := test.TimeOut(time.Second * 5)
 	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -760,13 +773,9 @@ func TestConnectionStateCallback(t *testing.T) {
 	<-isChecking
 	<-isConnected
 	<-isDisconnected
-	if err = aAgent.Close(); err != nil {
-		t.Error(err)
-	}
 
-	if err = bAgent.Close(); err != nil {
-		t.Error(err)
-	}
+	assert.NoError(t, aAgent.Close())
+	assert.NoError(t, bAgent.Close())
 
 	<-isClosed
 }
@@ -782,10 +791,14 @@ func TestInvalidGather(t *testing.T) {
 		if err != ErrNoOnCandidateHandler {
 			t.Fatal("trickle GatherCandidates succeeded without OnCandidate")
 		}
+		assert.NoError(t, a.Close())
 	})
 }
 
 func TestCandidatePairStats(t *testing.T) {
+	report := test.CheckRoutines(t)
+	defer report()
+
 	// avoid deadlocks?
 	defer test.TimeOut(1 * time.Second).Stop()
 
@@ -912,12 +925,13 @@ func TestCandidatePairStats(t *testing.T) {
 			prflxPairStat.State.String())
 	}
 
-	if err := a.Close(); err != nil {
-		t.Fatalf("Error on agent.Close(): %s", err)
-	}
+	assert.NoError(t, a.Close())
 }
 
 func TestLocalCandidateStats(t *testing.T) {
+	report := test.CheckRoutines(t)
+	defer report()
+
 	// avoid deadlocks?
 	defer test.TimeOut(1 * time.Second).Stop()
 
@@ -992,12 +1006,13 @@ func TestLocalCandidateStats(t *testing.T) {
 		t.Fatal("missing srflx local stat")
 	}
 
-	if err := a.Close(); err != nil {
-		t.Fatalf("Error on agent.Close(): %s", err)
-	}
+	assert.NoError(t, a.Close())
 }
 
 func TestRemoteCandidateStats(t *testing.T) {
+	report := test.CheckRoutines(t)
+	defer report()
+
 	// avoid deadlocks?
 	defer test.TimeOut(1 * time.Second).Stop()
 
@@ -1111,25 +1126,15 @@ func TestRemoteCandidateStats(t *testing.T) {
 		t.Fatal("missing host remote stat")
 	}
 
-	if err := a.Close(); err != nil {
-		t.Fatalf("Error on agent.Close(): %s", err)
-	}
+	assert.NoError(t, a.Close())
 }
 
 func TestInitExtIPMapping(t *testing.T) {
-	var a *Agent
-	var err error
-
-	var closeAgent = func() {
-		if a != nil {
-			if err = a.Close(); err != nil {
-				t.Fatalf("failed to close agent: %v", err)
-			}
-		}
-	}
+	report := test.CheckRoutines(t)
+	defer report()
 
 	// a.extIPMapper should be nil by default
-	a, err = NewAgent(&AgentConfig{
+	a, err := NewAgent(&AgentConfig{
 		Trickle: true, // to avoid starting gathering candidates
 	})
 	if err != nil {
@@ -1138,7 +1143,7 @@ func TestInitExtIPMapping(t *testing.T) {
 	if a.extIPMapper != nil {
 		t.Fatal("a.extIPMapper should be nil by default")
 	}
-	closeAgent()
+	assert.NoError(t, a.Close())
 
 	// a.extIPMapper should be nil when NAT1To1IPs is a non-nil empty array
 	a, err = NewAgent(&AgentConfig{
@@ -1152,7 +1157,7 @@ func TestInitExtIPMapping(t *testing.T) {
 	if a.extIPMapper != nil {
 		t.Fatal("a.extIPMapper should be nil by default")
 	}
-	closeAgent()
+	assert.NoError(t, a.Close())
 
 	// NewAgent should return an error when 1:1 NAT for host candidate is enabled
 	// but the candidate type does not appear in the CandidateTypes.
@@ -1199,4 +1204,60 @@ func TestInitExtIPMapping(t *testing.T) {
 	if err != ErrInvalidNAT1To1IPMapping {
 		t.Fatalf("Unexpected error: %v", err)
 	}
+}
+
+func TestBindingRequestTimeout(t *testing.T) {
+	report := test.CheckRoutines(t)
+	defer report()
+
+	const expectedRemovalCount = 2
+
+	a, err := NewAgent(&AgentConfig{})
+	assert.NoError(t, err)
+
+	now := time.Now()
+	a.pendingBindingRequests = append(a.pendingBindingRequests, bindingRequest{
+		timestamp: now,
+	})
+	a.pendingBindingRequests = append(a.pendingBindingRequests, bindingRequest{
+		timestamp: now.Add(-25 * time.Millisecond),
+	})
+	a.pendingBindingRequests = append(a.pendingBindingRequests, bindingRequest{
+		timestamp: now.Add(-750 * time.Millisecond),
+	})
+	a.pendingBindingRequests = append(a.pendingBindingRequests, bindingRequest{
+		timestamp: now.Add(-75 * time.Hour),
+	})
+
+	a.invalidatePendingBindingRequests(now)
+	assert.Equal(t, len(a.pendingBindingRequests), expectedRemovalCount, "Binding invalidation due to timeout did not remove the correct number of binding requests")
+	assert.NoError(t, a.Close())
+}
+
+// TestAgentCredentials checks if local username fragments and passwords (if set) meet RFC standard
+// and ensure it's backwards compatible with previous versions of the pion/ice
+func TestAgentCredentials(t *testing.T) {
+	// Make sure to pass travis check by disabling the logs
+	log := logging.NewDefaultLoggerFactory()
+	log.DefaultLogLevel = logging.LogLevelDisabled
+
+	// Agent should not require any of the usernames and password to be set
+	// If set, they should follow the default 16/128 bits random number generator strategy
+
+	agent, err := NewAgent(&AgentConfig{Trickle: true, LoggerFactory: log})
+	assert.NoError(t, err)
+	assert.GreaterOrEqual(t, len([]rune(agent.localUfrag))*8, 24)
+	assert.GreaterOrEqual(t, len([]rune(agent.localPwd))*8, 128)
+	assert.NoError(t, agent.Close())
+
+	// Should honor RFC standards
+	// Local values MUST be unguessable, with at least 128 bits of
+	// random number generator output used to generate the password, and
+	// at least 24 bits of output to generate the username fragment.
+
+	_, err = NewAgent(&AgentConfig{Trickle: true, LocalUfrag: "xx", LoggerFactory: log})
+	assert.EqualError(t, err, ErrLocalUfragInsufficientBits.Error())
+
+	_, err = NewAgent(&AgentConfig{Trickle: true, LocalPwd: "xxxxxx", LoggerFactory: log})
+	assert.EqualError(t, err, ErrLocalPwdInsufficientBits.Error())
 }
